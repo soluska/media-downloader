@@ -1,0 +1,1 @@
+{"dependencies":{"@coflyn/scrapr":"^1.4.0","express":"^5.3.0"},"description":"Media downloader mandiri berbasis scrapr — tempel link, ambil file. Siap deploy ke Render / Docker.","engines":{"node":">=18"},"license":"MIT","main":"server.js","name":"media-downloader-standalone","private":true,"scripts":{"dev":"node server.js","start":"node server.js"},"version":"1.0.0"}
