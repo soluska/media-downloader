@@ -28,18 +28,20 @@ Lalu buka http://localhost:3000 di browser.
 3. Klik link download yang muncul (tombol pertama biru, sisanya outline).
 4. Hasil yang berhasil otomatis tersimpan di tab **Riwayat** — bisa di-download ulang, di-resolve ulang (Coba Lagi), atau dihapus.
 
+## Riwayat per-perangkat
+
+Riwayat **tidak disimpan di server**. Setiap hasil resolve yang berhasil disimpan di browser pengunjung itu sendiri (localStorage, kunci `md-history-v1`, maks 200 item, terbaru dulu). Artinya:
+
+- Riwayat hanya terlihat di perangkat/browser yang memakainya — pengunjung lain tidak bisa melihat riwayatmu, dan kamu tidak bisa melihat riwayat mereka.
+- Riwayat hilang kalau pengunjung menghapus data situs / membersihkan localStorage di browsernya.
+- Server tidak menyimpan, tidak membaca, dan tidak bisa menghapus riwayat siapa pun.
+
 ## API
 
 | Method | Endpoint | Keterangan |
 |---|---|---|
 | POST | `/api/resolve` | Body `{ urls: ["...", ...] }` (maks 20). Resolve paralel, batas 60 detik per link. |
-| GET | `/api/history` | Daftar riwayat, terbaru dulu. |
-| DELETE | `/api/history/:id` | Hapus satu item. |
-| DELETE | `/api/history` | Hapus semua. |
-| POST | `/api/history/:id/retry` | Resolve ulang URL item itu. |
 | GET | `/api/health` | Cek server hidup. |
-
-Riwayat disimpan di `data/history.json` (maks 200 item). File ini tidak ikut ke git (lihat `.gitignore`).
 
 ## Deploy ke Render (gratis)
 
@@ -59,7 +61,7 @@ Tidak perlu domain sendiri. Tidak ada secret/API key yang perlu diisi.
 ### Catatan jujur soal free tier Render
 
 - **Service tidur setelah ~15 menit tidak ada yang buka.** Request pertama setelah tidur butuh sekitar 30–60 detik untuk bangun (halaman akan loading lebih lama sekali, lalu normal).
-- **Riwayat tidak permanen di free tier.** Disk Render free bersifat ephemeral: riwayat di `data/history.json` hilang setiap service restart/redeploy. Kalau riwayat permanen penting, perlu upgrade ke plan berbayar dengan Persistent Disk, atau jalankan di VPS sendiri.
+- **Riwayat tersimpan di browser masing-masing, bukan di server.** Jadi tidak ada riwayat bersama yang perlu dikhawatirkan soal disk ephemeral — tiap pengunjung menyimpan riwayatnya sendiri di perangkatnya (localStorage), dan riwayat itu hilang kalau dia menghapus data situs di browsernya.
 - Kalau banyak orang memakai bersamaan dan scraper sumber membatasi (rate limit), beberapa resolve bisa gagal — coba lagi beberapa saat kemudian.
 
 ## Deploy pakai Docker (alternatif)
@@ -69,7 +71,7 @@ docker build -t media-downloader .
 docker run -p 3000:3000 media-downloader
 ```
 
-Lalu buka http://localhost:3000. Untuk riwayat yang tetap tersimpan antar restart container, tambahkan volume: `-v $(pwd)/data:/app/data`.
+Lalu buka http://localhost:3000. Tidak ada lagi data riwayat di server, jadi tidak perlu volume.
 
 ## Troubleshooting
 
