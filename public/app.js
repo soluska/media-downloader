@@ -34,12 +34,16 @@ const modalNote = $("#modal-note");
 const modalDls = $("#modal-dls");
 const modalItems = $("#modal-items");
 const modalError = $("#modal-error");
+const modalOpentab = $("#modal-opentab");
+const modalOpentabLink = $("#modal-opentab-link");
 
 let lastResults = []; // hasil resolve terakhir (klik kartu -> popup)
 let resolving = false;
 let histQuery = "";
 let histFilter = "Semua";
 let modalOpen = false;
+let modalVideoUrls = []; // URL video untuk preview, dicoba satu per satu
+let modalVideoIdx = 0;
 
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
@@ -136,9 +140,32 @@ function updateLocalHistory(id, patch) {
 }
 
 // --- Popup hasil (modal) ---
-function firstVideoDownload(downloads) {
-  if (!downloads || !downloads.length) return null;
-  return downloads.find((d) => (d.type || "").toLowerCase() === "video") || null;
+function playVideoAt(i) {
+  if (i >= modalVideoUrls.length) {
+    showVideoFallback();
+    return;
+  }
+  modalVideoIdx = i;
+  modalVideoWrap.classList.remove("hidden");
+  modalThumbFallback.classList.add("hidden");
+  modalThumbFallback.innerHTML = "";
+  modalVideo.src = modalVideoUrls[i];
+  modalVideo.load();
+}
+
+function showVideoFallback() {
+  // Tidak ada URL video yang bisa diputar inline: tampilkan thumbnail + catatan.
+  modalVideo.pause();
+  modalVideo.removeAttribute("src");
+  modalVideo.load();
+  modalVideoWrap.classList.add("hidden");
+  const thumb = modalVideo.getAttribute("poster");
+  modalThumbFallback.classList.remove("hidden");
+  modalThumbFallback.innerHTML =
+    (thumb
+      ? `<img src="${esc(thumb)}" alt="" onerror="this.style.display='none'">`
+      : `<div class="thumb-ph">Preview tidak tersedia</div>`) +
+    `<p class="note">Preview tidak bisa diputar di sini — pakai tombol download di bawah atau buka video di tab baru.</p>`;
 }
 
 function openModal(r) {
@@ -163,14 +190,24 @@ function openModal(r) {
   modalItems.innerHTML = "";
   modalNote.classList.add("hidden");
   modalNote.textContent = "";
+  modalOpentab.classList.add("hidden");
 
   if (ok) {
-    const vd = firstVideoDownload(r.downloads);
-    if (vd && vd.url) {
-      modalVideoWrap.classList.remove("hidden");
+    // Preview: coba tiap URL video satu per satu. URL dari layanan
+    // downloader (rapidcdn/snaptik/tiktokio) sering merespons
+    // Content-Disposition: attachment sehingga <video> tidak bisa
+    // memutarnya inline — kalau tidak ada yang bisa diputar, tampilkan
+    // thumbnail + tautan "Buka video di tab baru".
+    modalVideoUrls = (r.downloads || [])
+      .filter((d) => (d.type || "").toLowerCase() === "video" && d.url)
+      .map((d) => d.url);
+    modalVideoIdx = 0;
+    if (modalVideoUrls.length) {
       if (r.thumbnail) modalVideo.setAttribute("poster", r.thumbnail);
       else modalVideo.removeAttribute("poster");
-      modalVideo.src = vd.url;
+      modalOpentabLink.href = modalVideoUrls[0];
+      modalOpentab.classList.remove("hidden");
+      playVideoAt(0);
     } else if (r.thumbnail) {
       // Tidak ada file video langsung (mis. playlist / audio saja): tampilkan thumbnail.
       modalThumbFallback.classList.remove("hidden");
@@ -217,16 +254,9 @@ function closeModal() {
 }
 
 modalVideo.addEventListener("error", () => {
-  // Preview gagal dimuat: sembunyikan player, tampilkan thumbnail + catatan.
+  // URL video ini tidak bisa diputar inline: coba URL video berikutnya.
   if (!modalOpen) return;
-  modalVideoWrap.classList.add("hidden");
-  modalThumbFallback.classList.remove("hidden");
-  const thumb = modalVideo.getAttribute("poster");
-  modalThumbFallback.innerHTML =
-    (thumb
-      ? `<img src="${esc(thumb)}" alt="" onerror="this.style.display='none'">`
-      : `<div class="thumb-ph">Preview tidak tersedia</div>`) +
-    `<p class="note">Preview tidak bisa diputar — pakai tombol download di bawah.</p>`;
+  playVideoAt(modalVideoIdx + 1);
 });
 
 $("#modal-close").addEventListener("click", closeModal);
@@ -255,7 +285,7 @@ function resultCard(r, state, idx) {
   if (state === "fail")
     statusHtml = `<p class="status fail">Gagal. Ketuk kartu untuk melihat alasannya.</p><p class="err">${esc(
       r.error || "Tidak diketahui"
-    )}</p>`;
+    )}</p><div class="card-actions"><button class="btn-outline btn-small" data-act="retry" type="button">Coba lagi</button></div>`;
 
   const note = r.note ? `<p class="note">${esc(r.note)}</p>` : "";
   return `<article class="card" data-idx="${idx}" tabindex="0" role="button" aria-label="Lihat hasil ${esc(
@@ -324,6 +354,12 @@ btnResolve.addEventListener("click", doResolve);
 // Ketuk kartu hasil -> popup (abaikan selama masih memproses).
 resultsEl.addEventListener("click", (ev) => {
   if (resolving) return;
+  const retryBtn = ev.target.closest("button[data-act='retry']");
+  if (retryBtn) {
+    const card = ev.target.closest(".card[data-idx]");
+    if (card) retryResolve(Number(card.dataset.idx), retryBtn);
+    return;
+  }
   const card = ev.target.closest(".card[data-idx]");
   if (!card) return;
   const r = lastResults[Number(card.dataset.idx)];
@@ -332,12 +368,38 @@ resultsEl.addEventListener("click", (ev) => {
 resultsEl.addEventListener("keydown", (ev) => {
   if (resolving) return;
   if (ev.key !== "Enter" && ev.key !== " ") return;
+  if (ev.target.closest("button")) return;
   const card = ev.target.closest(".card[data-idx]");
   if (!card) return;
   ev.preventDefault();
   const r = lastResults[Number(card.dataset.idx)];
   if (r) openModal(r);
 });
+
+async function retryResolve(idx, btn) {
+  const prev = lastResults[idx];
+  if (!prev) return;
+  btn.disabled = true;
+  btn.textContent = "Memproses…";
+  try {
+    const res = await fetch("/api/resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ urls: [prev.url] }),
+    });
+    const data = await res.json();
+    const r = data.results && data.results[0];
+    if (!res.ok || !r) throw new Error((data && data.error) || "tidak diketahui");
+    lastResults[idx] = r;
+    addToLocalHistory([r]);
+    resultsEl.innerHTML = lastResults.map((x, i) => resultCard(x, x.ok ? "ok" : "fail", i)).join("");
+    if (r.ok) openModal(r);
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = "Coba lagi";
+    statusLine.textContent = "Gagal resolve ulang: " + (e.message || "tidak diketahui");
+  }
+}
 
 // --- Riwayat (tab Riwayat) ---
 function qualityLabel(item) {
