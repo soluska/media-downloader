@@ -64,6 +64,14 @@ function hostOf(url) {
   }
 }
 
+// Semua link file dilewatkan proxy server (/api/dl) supaya token gateway
+// yang terikat IP server tetap berlaku saat dibuka dari HP pengguna.
+// download=true -> file diunduh (attachment); false -> inline (preview).
+function dlHref(rawUrl, download) {
+  if (!rawUrl) return "#";
+  return "/api/dl?u=" + encodeURIComponent(rawUrl) + (download ? "&dl=1" : "");
+}
+
 function platformOf(url) {
   const h = hostOf(url);
   if (h.includes("tiktok.com")) return "TikTok";
@@ -193,19 +201,20 @@ function openModal(r) {
   modalOpentab.classList.add("hidden");
 
   if (ok) {
-    // Preview: coba tiap URL video satu per satu. URL dari layanan
-    // downloader (rapidcdn/snaptik/tiktokio) sering merespons
-    // Content-Disposition: attachment sehingga <video> tidak bisa
-    // memutarnya inline — kalau tidak ada yang bisa diputar, tampilkan
-    // thumbnail + tautan "Buka video di tab baru".
+    // Preview: coba tiap URL video satu per satu (lewat proxy /api/dl,
+    // mode inline). Kalau upstream tetap menolak, tampilkan thumbnail +
+    // tautan "Buka video di tab baru".
     modalVideoUrls = (r.downloads || [])
       .filter((d) => (d.type || "").toLowerCase() === "video" && d.url)
-      .map((d) => d.url);
+      .map((d) => dlHref(d.url));
     modalVideoIdx = 0;
     if (modalVideoUrls.length) {
       if (r.thumbnail) modalVideo.setAttribute("poster", r.thumbnail);
       else modalVideo.removeAttribute("poster");
-      modalOpentabLink.href = modalVideoUrls[0];
+      const firstVideoRaw = (r.downloads || []).find(
+        (d) => (d.type || "").toLowerCase() === "video" && d.url
+      );
+      modalOpentabLink.href = dlHref(firstVideoRaw && firstVideoRaw.url, true);
       modalOpentab.classList.remove("hidden");
       playVideoAt(0);
     } else if (r.thumbnail) {
@@ -217,7 +226,7 @@ function openModal(r) {
       modalDls.innerHTML = r.downloads
         .map(
           (d) =>
-            `<a class="res-row" href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.label || "Download")}</a>`
+            `<a class="res-row" href="${esc(dlHref(d.url, true))}" target="_blank" rel="noopener">${esc(d.label || "Download")}</a>`
         )
         .join("");
     }
