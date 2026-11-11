@@ -4,17 +4,20 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Media Downloader</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f34e0'/%3E%3Cpath d='M16 7v13m0 0l-5-5m5 5l5-5M9 24h14' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231A1A1E'/%3E%3Cpath d='M16 7v13m0 0l-5-5m5 5l5-5M9 24h14' stroke='%23C9C9D1' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>Media Downloader</h1>
-    <p class="sub">Tempel link, ambil file-nya. TikTok, Instagram, YouTube, Spotify, X, dan lainnya.</p>
+    <div class="title-row">
+      <h1>Media<br>Downloader</h1>
+      <span class="badge-sticker" aria-hidden="true">DOWNLOAD</span>
+    </div>
+    <p class="sub">Tempel link TikTok, YouTube, atau Instagram — ambil videonya, tanpa ribet.</p>
   </header>
 
-  <nav class="tabs" role="tablist">
+  <nav class="tabs" role="tablist" aria-label="Menu utama">
     <button id="tab-unduh" class="tab active" role="tab" aria-selected="true">Unduh</button>
     <button id="tab-riwayat" class="tab" role="tab" aria-selected="false">Riwayat</button>
   </nav>
@@ -24,15 +27,23 @@
     <label class="lbl" for="urls">Link media (satu link per baris — bisa banyak sekaligus)</label>
     <textarea id="urls" rows="4" placeholder="https://www.tiktok.com/@.../video/...&#10;https://www.youtube.com/watch?v=..."></textarea>
     <button id="btn-resolve" class="btn-primary">Ambil Link Download</button>
-    <p class="hint" id="status-line"></p>
+    <p class="hint" id="status-line" role="status"></p>
     <div id="results"></div>
   </section>
 
   <!-- TAB RIWAYAT -->
   <section id="pane-riwayat" class="pane hidden">
+    <input id="hist-search" type="search" placeholder="Cari judul atau link..." aria-label="Cari riwayat">
+    <div class="chips" role="group" aria-label="Filter platform">
+      <button class="chip active" data-filter="Semua" type="button">Semua</button>
+      <button class="chip" data-filter="TikTok" type="button">TikTok</button>
+      <button class="chip" data-filter="Instagram" type="button">Instagram</button>
+      <button class="chip" data-filter="YouTube" type="button">YouTube</button>
+      <button class="chip" data-filter="Lainnya" type="button">Lainnya</button>
+    </div>
     <div class="row-between">
       <p class="lbl" style="margin:0">Hasil yang pernah di-resolve</p>
-      <button id="btn-clear" class="btn-outline btn-small">Hapus Semua</button>
+      <button id="btn-clear" class="btn-outline btn-small" type="button">Hapus Semua</button>
     </div>
     <p class="hint">Riwayat tersimpan di browser ini saja — hanya kamu yang bisa melihatnya.</p>
     <div id="history-list"></div>
@@ -42,6 +53,28 @@
     <p>Resolve memakai library scrapr. Kalau satu link gagal, coba lagi — situs sumber kadang berubah atau membatasi.</p>
   </footer>
 </div>
+
+<!-- POPUP HASIL -->
+<div id="modal-backdrop" class="modal-backdrop hidden" role="presentation">
+  <div id="modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <button id="modal-close" class="modal-x" type="button" aria-label="Tutup">&times;</button>
+    <div id="modal-video-wrap" class="modal-video-wrap hidden">
+      <video id="modal-video" controls playsinline preload="metadata"></video>
+    </div>
+    <div id="modal-thumb-fallback" class="modal-thumb-fallback hidden"></div>
+    <div class="modal-head">
+      <span id="modal-badge" class="badge"></span>
+      <h2 id="modal-title" class="modal-title"></h2>
+    </div>
+    <p id="modal-url" class="modal-url"></p>
+    <p id="modal-note" class="modal-note hidden"></p>
+    <div id="modal-dls" class="res-list"></div>
+    <div id="modal-items" class="playlist-list"></div>
+    <p id="modal-error" class="modal-error hidden"></p>
+    <button id="modal-close-btn" class="btn-primary" type="button">Tutup</button>
+  </div>
+</div>
+
 <script src="/app.js"></script>
 </body>
 </html>
