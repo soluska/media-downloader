@@ -90,6 +90,7 @@ const DL_HOSTS = [
   "snaptik.app",
   "tiktokio.com",
   "ssstik.io",
+  "tikcdn.io",
   "tikdownloader.io",
   "rapidcdn.app",
   "savetik.co",
