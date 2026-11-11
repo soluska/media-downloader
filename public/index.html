@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Media Downloader</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f34e0'/%3E%3Cpath d='M16 7v13m0 0l-5-5m5 5l5-5M9 24h14' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Media Downloader</h1>
+    <p class="sub">Tempel link, ambil file-nya. TikTok, Instagram, YouTube, Spotify, X, dan lainnya.</p>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button id="tab-unduh" class="tab active" role="tab" aria-selected="true">Unduh</button>
+    <button id="tab-riwayat" class="tab" role="tab" aria-selected="false">Riwayat</button>
+  </nav>
+
+  <!-- TAB UNDUH -->
+  <section id="pane-unduh" class="pane">
+    <label class="lbl" for="urls">Link media (satu link per baris — bisa banyak sekaligus)</label>
+    <textarea id="urls" rows="4" placeholder="https://www.tiktok.com/@.../video/...&#10;https://www.youtube.com/watch?v=..."></textarea>
+    <button id="btn-resolve" class="btn-primary">Ambil Link Download</button>
+    <p class="hint" id="status-line"></p>
+    <div id="results"></div>
+  </section>
+
+  <!-- TAB RIWAYAT -->
+  <section id="pane-riwayat" class="pane hidden">
+    <div class="row-between">
+      <p class="lbl" style="margin:0">Hasil yang pernah di-resolve</p>
+      <button id="btn-clear" class="btn-outline btn-small">Hapus Semua</button>
+    </div>
+    <div id="history-list"></div>
+  </section>
+
+  <footer>
+    <p>Resolve memakai library scrapr. Kalau satu link gagal, coba lagi — situs sumber kadang berubah atau membatasi.</p>
+  </footer>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>
