@@ -1,5 +1,11 @@
 // Frontend Media Downloader — vanilla JS, tanpa framework.
+// Riwayat PER-PERANGKAT: disimpan di localStorage browser ini saja
+// (key "md-history-v1"), tidak dikirim ke atau disimpan di server.
+// Jadi riwayat hanya terlihat di perangkat ini, bukan oleh pengunjung lain.
 const $ = (s) => document.querySelector(s);
+
+const HISTORY_KEY = "md-history-v1";
+const HISTORY_MAX = 200;
 
 const tabUnduh = $("#tab-unduh");
 const tabRiwayat = $("#tab-riwayat");
@@ -28,6 +34,64 @@ function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[c]));
+}
+
+function newId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+// --- Riwayat lokal (localStorage) ---
+function loadLocalHistory() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalHistory(items) {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(0, HISTORY_MAX)));
+  } catch {
+    // localStorage penuh / tidak tersedia — abaikan, resolve tetap jalan.
+  }
+}
+
+// Simpan hasil resolve yang sukses ke riwayat perangkat ini,
+// langsung saat hasil diterima (history-first per perangkat).
+function addToLocalHistory(results) {
+  const fresh = results
+    .filter((r) => r.ok)
+    .map((r) => ({
+      id: newId(),
+      url: r.url,
+      title: r.title,
+      thumbnail: r.thumbnail,
+      type: r.type,
+      downloads: r.downloads,
+      items: r.items || null,
+      note: r.note || null,
+      createdAt: new Date().toISOString(),
+    }));
+  if (!fresh.length) return;
+  const urls = new Set(fresh.map((i) => i.url));
+  const kept = loadLocalHistory().filter((i) => !urls.has(i.url));
+  saveLocalHistory([...fresh, ...kept]);
+}
+
+function removeFromLocalHistory(id) {
+  saveLocalHistory(loadLocalHistory().filter((i) => i.id !== id));
+}
+
+function updateLocalHistory(id, patch) {
+  const items = loadLocalHistory();
+  const idx = items.findIndex((i) => i.id === id);
+  if (idx === -1) return null;
+  items[idx] = { ...items[idx], ...patch };
+  saveLocalHistory(items);
+  return items[idx];
 }
 
 function downloadLinks(downloads) {
@@ -103,7 +167,8 @@ async function doResolve() {
     const done = data.results.filter((r) => r.ok).length;
     const failed = data.results.length - done;
     statusLine.textContent =
-      `Selesai: ${done} berhasil` + (failed ? `, ${failed} gagal` : "") + ". Hasil yang berhasil sudah tersimpan di Riwayat.";
+      `Selesai: ${done} berhasil` + (failed ? `, ${failed} gagal` : "") + ". Hasil yang berhasil sudah tersimpan di Riwayat perangkat ini.";
+    addToLocalHistory(data.results);
     resultsEl.innerHTML = data.results
       .map((r) => resultCard(r, r.ok ? "ok" : "fail"))
       .join("");
@@ -141,20 +206,13 @@ function historyCard(item) {
   </article>`;
 }
 
-async function loadHistory() {
-  historyList.innerHTML = `<p class="empty">Memuat riwayat…</p>`;
-  try {
-    const res = await fetch("/api/history");
-    const data = await res.json();
-    const items = data.items || [];
-    if (!items.length) {
-      historyList.innerHTML = `<p class="empty">Belum ada riwayat. Hasil resolve yang berhasil akan muncul di sini.</p>`;
-      return;
-    }
-    historyList.innerHTML = items.map(historyCard).join("");
-  } catch {
-    historyList.innerHTML = `<p class="empty">Tidak bisa memuat riwayat.</p>`;
+function loadHistory() {
+  const items = loadLocalHistory();
+  if (!items.length) {
+    historyList.innerHTML = `<p class="empty">Belum ada riwayat di perangkat ini. Hasil resolve yang berhasil akan muncul di sini.</p>`;
+    return;
   }
+  historyList.innerHTML = items.map(historyCard).join("");
 }
 
 historyList.addEventListener("click", async (ev) => {
@@ -164,26 +222,44 @@ historyList.addEventListener("click", async (ev) => {
   const id = card && card.dataset.id;
   if (!id) return;
   if (btn.dataset.act === "del") {
-    await fetch(`/api/history/${encodeURIComponent(id)}`, { method: "DELETE" });
+    removeFromLocalHistory(id);
     loadHistory();
   }
   if (btn.dataset.act === "retry") {
+    const item = loadLocalHistory().find((i) => i.id === id);
+    if (!item) return;
     btn.disabled = true;
     btn.textContent = "Memproses…";
-    const res = await fetch(`/api/history/${encodeURIComponent(id)}/retry`, { method: "POST" });
-    const data = await res.json();
-    if (!res.ok) {
+    try {
+      const res = await fetch("/api/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls: [item.url] }),
+      });
+      const data = await res.json();
+      const r = data.results && data.results[0];
+      if (!res.ok || !r || !r.ok) {
+        throw new Error((r && r.error) || data.error || "tidak diketahui");
+      }
+      updateLocalHistory(id, {
+        title: r.title,
+        thumbnail: r.thumbnail,
+        type: r.type,
+        downloads: r.downloads,
+        items: r.items || null,
+        note: r.note || null,
+      });
+      loadHistory();
+    } catch (e) {
       btn.disabled = false;
       btn.textContent = "Coba Lagi";
-      alert("Gagal resolve ulang: " + (data.error || "tidak diketahui"));
-      return;
+      alert("Gagal resolve ulang: " + (e.message || "tidak diketahui"));
     }
-    switchTab("riwayat"); // muat ulang daftar
   }
 });
 
-$("#btn-clear").addEventListener("click", async () => {
-  if (!confirm("Hapus semua riwayat?")) return;
-  await fetch("/api/history", { method: "DELETE" });
+$("#btn-clear").addEventListener("click", () => {
+  if (!confirm("Hapus semua riwayat di perangkat ini?")) return;
+  saveLocalHistory([]);
   loadHistory();
 });
