@@ -27,6 +27,7 @@ const modalBackdrop = $("#modal-backdrop");
 const modalVideoWrap = $("#modal-video-wrap");
 const modalVideo = $("#modal-video");
 const modalThumbFallback = $("#modal-thumb-fallback");
+const modalGallery = $("#modal-gallery");
 const modalBadge = $("#modal-badge");
 const modalTitle = $("#modal-title");
 const modalUrl = $("#modal-url");
@@ -176,6 +177,68 @@ function showVideoFallback() {
     `<p class="note">Preview tidak bisa diputar di sini — pakai tombol download di bawah atau buka video di tab baru.</p>`;
 }
 
+// Galeri gambar: satu slide per gambar, geser kanan-kiri (swipe di HP,
+// panah/titik di layar lebar). Tiap slide menampilkan gambar aslinya
+// (lewat proxy /api/dl mode inline) + label resolusi + tombol unduh
+// untuk gambar itu saja.
+function buildGallery(imageDls) {
+  const total = imageDls.length;
+  modalGallery.classList.remove("hidden");
+  modalGallery.innerHTML =
+    `<div class="gallery-track">` +
+    imageDls
+      .map(
+        (d, i) =>
+          `<figure class="gallery-slide">` +
+          `<img src="${esc(dlHref(d.url))}" alt="${esc(d.label || "Gambar " + (i + 1))}"${
+            i > 0 ? ` loading="lazy"` : ""
+          } onerror="this.style.display='none'">` +
+          `<figcaption class="gallery-bar">` +
+          `<span class="gallery-label">${esc(d.label || "Gambar " + (i + 1))}</span>` +
+          `<a class="gallery-dl" href="${esc(dlHref(d.url, true))}" target="_blank" rel="noopener">Unduh</a>` +
+          `</figcaption></figure>`
+      )
+      .join("") +
+    `</div>` +
+    (total > 1
+      ? `<div class="gallery-nav">` +
+        `<button class="gallery-arrow" type="button" aria-label="Gambar sebelumnya">&#8249;</button>` +
+        `<span class="gallery-dots">` +
+        imageDls
+          .map(
+            (_, i) =>
+              `<button class="gallery-dot${i === 0 ? " active" : ""}" data-i="${i}" type="button" aria-label="Gambar ${i + 1}"></button>`
+          )
+          .join("") +
+        `</span>` +
+        `<button class="gallery-arrow" type="button" aria-label="Gambar berikutnya">&#8250;</button>` +
+        `</div>`
+      : "");
+  if (total <= 1) return;
+  const track = modalGallery.querySelector(".gallery-track");
+  const dots = [...modalGallery.querySelectorAll(".gallery-dot")];
+  const arrows = [...modalGallery.querySelectorAll(".gallery-arrow")];
+  const goTo = (i) => {
+    const w = track.clientWidth || 1;
+    track.scrollTo({ left: Math.max(0, Math.min(total - 1, i)) * w, behavior: "smooth" });
+  };
+  const current = () => {
+    const w = track.clientWidth || 1;
+    return Math.min(total - 1, Math.max(0, Math.round(track.scrollLeft / w)));
+  };
+  track.addEventListener(
+    "scroll",
+    () => {
+      const idx = current();
+      dots.forEach((dot, i) => dot.classList.toggle("active", i === idx));
+    },
+    { passive: true }
+  );
+  arrows[0].addEventListener("click", () => goTo(current() - 1));
+  arrows[1].addEventListener("click", () => goTo(current() + 1));
+  dots.forEach((dot) => dot.addEventListener("click", () => goTo(Number(dot.dataset.i))));
+}
+
 function openModal(r) {
   // r: hasil resolve {url, ok, title, thumbnail, type, downloads, items, note, error}
   // atau item riwayat (diperlakukan ok:true).
@@ -185,13 +248,15 @@ function openModal(r) {
   modalTitle.textContent = r.title || r.url;
   modalUrl.textContent = r.url;
 
-  // Reset video + isi lama
+  // Reset video + galeri + isi lama
   modalVideo.pause();
   modalVideo.removeAttribute("src");
   modalVideo.load();
   modalVideoWrap.classList.add("hidden");
   modalThumbFallback.classList.add("hidden");
   modalThumbFallback.innerHTML = "";
+  modalGallery.classList.add("hidden");
+  modalGallery.innerHTML = "";
   modalError.classList.add("hidden");
   modalError.textContent = "";
   modalDls.innerHTML = "";
@@ -201,29 +266,44 @@ function openModal(r) {
   modalOpentab.classList.add("hidden");
 
   if (ok) {
+    // Gambar (carousel IG dsb.): tampilkan sebagai galeri yang bisa
+    // digeser kanan-kiri, tiap gambar punya tombol unduh sendiri +
+    // label resolusinya. Galeri dipakai bila tidak ada video — kalau
+    // ada video, preview video tetap yang utama seperti sebelumnya.
+    const imageDls = (r.downloads || []).filter(
+      (d) => /^(image|photo)$/i.test(d.type || "") && d.url
+    );
+    const videoDls = (r.downloads || []).filter(
+      (d) => (d.type || "").toLowerCase() === "video" && d.url
+    );
+    const showGallery = imageDls.length > 0 && videoDls.length === 0;
+    if (showGallery) {
+      buildGallery(imageDls);
+    }
     // Preview: coba tiap URL video satu per satu (lewat proxy /api/dl,
     // mode inline). Kalau upstream tetap menolak, tampilkan thumbnail +
     // tautan "Buka video di tab baru".
-    modalVideoUrls = (r.downloads || [])
-      .filter((d) => (d.type || "").toLowerCase() === "video" && d.url)
-      .map((d) => dlHref(d.url));
+    modalVideoUrls = videoDls.map((d) => dlHref(d.url));
     modalVideoIdx = 0;
     if (modalVideoUrls.length) {
       if (r.thumbnail) modalVideo.setAttribute("poster", r.thumbnail);
       else modalVideo.removeAttribute("poster");
-      const firstVideoRaw = (r.downloads || []).find(
-        (d) => (d.type || "").toLowerCase() === "video" && d.url
-      );
+      const firstVideoRaw = videoDls[0];
       modalOpentabLink.href = dlHref(firstVideoRaw && firstVideoRaw.url, true);
       modalOpentab.classList.remove("hidden");
       playVideoAt(0);
-    } else if (r.thumbnail) {
+    } else if (!showGallery && r.thumbnail) {
       // Tidak ada file video langsung (mis. playlist / audio saja): tampilkan thumbnail.
       modalThumbFallback.classList.remove("hidden");
       modalThumbFallback.innerHTML = `<img src="${esc(r.thumbnail)}" alt="" onerror="this.style.display='none'">`;
     }
     if (r.downloads && r.downloads.length) {
-      modalDls.innerHTML = r.downloads
+      // Kalau galeri tampil, tombol gambar tidak diulang di daftar
+      // bawah — tiap gambar sudah punya tombol unduh sendiri di slidenya.
+      const listed = showGallery
+        ? r.downloads.filter((d) => !/^(image|photo)$/i.test(d.type || ""))
+        : r.downloads;
+      modalDls.innerHTML = listed
         .map(
           (d) =>
             `<a class="res-row" href="${esc(dlHref(d.url, true))}" target="_blank" rel="noopener">${esc(d.label || "Download")}</a>`
