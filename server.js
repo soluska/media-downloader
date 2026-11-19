@@ -95,6 +95,7 @@ const DL_HOSTS = [
   "rapidcdn.app",
   "savetik.co",
   "indown.net",
+  "snapcdn.app", // indown resolver mengembalikan file di dl.snapcdn.app / i.snapcdn.app
   "snapsave.app",
   "snapinsta.to",
   "fdown.net",
