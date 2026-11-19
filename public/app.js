@@ -33,6 +33,8 @@ const modalTitle = $("#modal-title");
 const modalUrl = $("#modal-url");
 const modalNote = $("#modal-note");
 const modalDls = $("#modal-dls");
+const modalRes = $("#modal-res");
+const modalResTitle = $("#modal-res-title");
 const modalItems = $("#modal-items");
 const modalError = $("#modal-error");
 const modalOpentab = $("#modal-opentab");
@@ -179,8 +181,9 @@ function showVideoFallback() {
 
 // Galeri gambar: satu slide per gambar, geser kanan-kiri (swipe di HP,
 // panah/titik di layar lebar). Tiap slide menampilkan gambar aslinya
-// (lewat proxy /api/dl mode inline) + label resolusi + tombol unduh
-// untuk gambar itu saja.
+// (lewat proxy /api/dl mode inline) + label resolusi. Pilihan resolusi
+// unduh (Asli/1080p/720p/480p) tampil di daftar bawah galeri dan mengikuti
+// gambar yang sedang terlihat — lihat renderResOptions.
 function buildGallery(imageDls) {
   const total = imageDls.length;
   modalGallery.classList.remove("hidden");
@@ -195,7 +198,6 @@ function buildGallery(imageDls) {
           } onerror="this.style.display='none'">` +
           `<figcaption class="gallery-bar">` +
           `<span class="gallery-label">${esc(d.label || "Gambar " + (i + 1))}</span>` +
-          `<a class="gallery-dl" href="${esc(dlHref(d.url, true))}" target="_blank" rel="noopener">Unduh</a>` +
           `</figcaption></figure>`
       )
       .join("") +
@@ -214,6 +216,12 @@ function buildGallery(imageDls) {
         `<button class="gallery-arrow" type="button" aria-label="Gambar berikutnya">&#8250;</button>` +
         `</div>`
       : "");
+  let cur = 0;
+  const showRes = (i) => {
+    cur = i;
+    renderResOptions(imageDls, i);
+  };
+  renderResOptions(imageDls, 0);
   if (total <= 1) return;
   const track = modalGallery.querySelector(".gallery-track");
   const dots = [...modalGallery.querySelectorAll(".gallery-dot")];
@@ -231,12 +239,53 @@ function buildGallery(imageDls) {
     () => {
       const idx = current();
       dots.forEach((dot, i) => dot.classList.toggle("active", i === idx));
+      if (idx !== cur) showRes(idx);
     },
     { passive: true }
   );
   arrows[0].addEventListener("click", () => goTo(current() - 1));
   arrows[1].addEventListener("click", () => goTo(current() + 1));
   dots.forEach((dot) => dot.addEventListener("click", () => goTo(Number(dot.dataset.i))));
+}
+
+// Pilihan resolusi unduh untuk satu gambar: file asli + versi yang
+// diperkecil server (480p/720p/1080p — tinggi target; hanya yang lebih
+// kecil dari aslinya, tanpa upscale). Ditampilkan sebagai baris unduh
+// gaya awal (res-row, selebar layar). Tanpa dimensi ter-probe (riwayat
+// lama), hanya ada pilihan Asli.
+function resOptionsFor(d) {
+  const rows = [];
+  const asli = (d.label || "Gambar").replace(/^Gambar \d+/, "Asli");
+  rows.push({ text: asli, href: dlHref(d.url, true) });
+  const W = d.width;
+  const H = d.height;
+  if (W && H) {
+    for (const h of [1080, 720, 480]) {
+      if (H > h) {
+        const w = Math.round((W * h) / H);
+        rows.push({ text: `${h}p · ${w}×${h}`, href: dlHref(d.url, true) + `&h=${h}` });
+      }
+    }
+  }
+  return rows;
+}
+
+function renderResOptions(imageDls, idx) {
+  const d = imageDls[idx];
+  if (!d) {
+    modalResTitle.classList.add("hidden");
+    modalResTitle.textContent = "";
+    modalRes.innerHTML = "";
+    return;
+  }
+  modalResTitle.textContent = `Unduh Gambar ${idx + 1}`;
+  modalResTitle.classList.remove("hidden");
+  modalRes.innerHTML = resOptionsFor(d)
+    .map(
+      (r) =>
+        `<a class="res-row" href="${esc(r.href)}" target="_blank" rel="noopener">${esc(r.text)}</a>`
+    )
+    .join("");
 }
 
 function openModal(r) {
@@ -257,6 +306,9 @@ function openModal(r) {
   modalThumbFallback.innerHTML = "";
   modalGallery.classList.add("hidden");
   modalGallery.innerHTML = "";
+  modalResTitle.classList.add("hidden");
+  modalResTitle.textContent = "";
+  modalRes.innerHTML = "";
   modalError.classList.add("hidden");
   modalError.textContent = "";
   modalDls.innerHTML = "";

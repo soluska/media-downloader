@@ -7,6 +7,16 @@
 const path = require("path");
 const axios = require("axios");
 
+// sharp (resize gambar ke 480p/720p/1080p) — opsional: kalau gagal
+// di-load (mis. platform tanpa binary prebuilt), server tetap jalan
+// dan permintaan resize jatuh ke file asli.
+let sharp = null;
+try {
+  sharp = require("sharp");
+} catch {
+  sharp = null;
+}
+
 // Proxy opsional: kalau environment menyediakan HTTPS_PROXY/HTTP_PROXY
 // (mis. saat dev di VM ber-proxy), teruskan ke axios agar scrapr bisa
 // keluar. Di hosting normal (Render/Docker) variabel ini tidak ada,
@@ -144,6 +154,49 @@ function extFromContentType(ct) {
   return "bin";
 }
 
+// Ambil seluruh isi file upstream sebagai buffer (untuk resize gambar).
+// Mengembalikan { data: Buffer, headers } atau melempar Error.
+async function fetchUpstreamBuffer(raw, target) {
+  let lastErr = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await axios({
+        method: "get",
+        url: raw,
+        responseType: "arraybuffer",
+        maxRedirects: 5,
+        timeout: 60000,
+        validateStatus: null,
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          Referer: `${target.protocol}//${target.host}/`,
+        },
+      });
+      let finalHost = target.hostname;
+      try {
+        const finalUrl = r.request && r.request.res && r.request.res.responseUrl;
+        if (finalUrl) finalHost = new URL(finalUrl).hostname;
+      } catch {
+        // abaikan
+      }
+      if (!dlHostAllowed(finalHost)) throw new Error("Redirect ke host yang tidak diizinkan");
+      if (r.status < 200 || r.status >= 300)
+        throw new Error(`Server sumber menolak (${r.status})`);
+      return { data: Buffer.from(r.data), headers: r.headers || {} };
+    } catch (e) {
+      lastErr = e;
+      const retryable =
+        !e.response &&
+        (["ECONNRESET", "ECONNABORTED", "ETIMEDOUT", "EPIPE"].includes(e.code) ||
+          /socket hang up/i.test(e.message || ""));
+      if (!retryable || attempt === 1) throw e;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+  throw lastErr || new Error("Gagal mengambil file");
+}
+
 app.get("/api/dl", async (req, res) => {
   const raw = req.query.u;
   if (typeof raw !== "string" || !raw) {
@@ -160,6 +213,42 @@ app.get("/api/dl", async (req, res) => {
   }
   if (!dlHostAllowed(target.hostname)) {
     return res.status(400).json({ error: "Host file tidak diizinkan" });
+  }
+
+  // Resize gambar (?h=480|720|1080, tinggi target dalam piksel — konvensi
+  // "480p/720p/1080p"): ambil file asli, perkecil dengan sharp, kirim
+  // sebagai JPEG/PNG. Tanpa upscale. Kalau apa pun gagal (bukan gambar,
+  // sharp tidak tersedia, upstream error), lanjut ke jalur streaming
+  // biasa di bawah — pengguna tetap dapat file aslinya.
+  const resizeH = ["480", "720", "1080"].includes(String(req.query.h || ""))
+    ? Number(req.query.h)
+    : null;
+  if (resizeH && sharp) {
+    try {
+      const buf = await fetchUpstreamBuffer(raw, target);
+      const ct = String((buf.headers && buf.headers["content-type"]) || "");
+      if (/^image\/(jpeg|png|webp)/i.test(ct)) {
+        const img = sharp(buf.data);
+        const meta = await img.metadata();
+        if (meta.height && meta.height > resizeH) {
+          const out = await img
+            .resize({ height: resizeH, withoutEnlargement: true })
+            .toFormat(ct.includes("png") ? "png" : "jpeg", { quality: 85 })
+            .toBuffer();
+          res.setHeader("Content-Type", ct.includes("png") ? "image/png" : "image/jpeg");
+          res.setHeader("Content-Length", out.length);
+          if (req.query.dl === "1") {
+            res.setHeader(
+              "Content-Disposition",
+              `attachment; filename="media-downloader-${resizeH}p.${ct.includes("png") ? "png" : "jpg"}"`
+            );
+          }
+          return res.status(200).send(out);
+        }
+      }
+    } catch {
+      // jatuh ke file asli di bawah
+    }
   }
 
   try {
